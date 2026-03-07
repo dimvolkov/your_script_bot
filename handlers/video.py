@@ -85,9 +85,14 @@ async def handle_url(message: Message) -> None:
     url = message.text.strip()
     if is_valid_youtube_url(url):
         await _process_youtube(message, url)
+    elif "t.me/" in url or "telegram." in url:
+        await message.answer(
+            "Ссылки на Telegram видео не поддерживаются.\n"
+            "Перешлите видео напрямую в этот чат — просто сделайте Forward сообщения с видео."
+        )
     else:
         await message.answer(
-            "Отправьте ссылку на YouTube видео, видеофайл или видеокружок."
+            "Отправьте ссылку на YouTube видео или перешлите видеофайл/видеокружок в этот чат."
         )
 
 
