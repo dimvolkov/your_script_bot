@@ -23,7 +23,7 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
 
     segments = []
     for seg in response.segments:
-        segments.append(Segment(start=seg["start"], end=seg["end"], text=seg["text"].strip()))
+        segments.append(Segment(start=seg.start, end=seg.end, text=seg.text.strip()))
 
     return segments, response.language
 
