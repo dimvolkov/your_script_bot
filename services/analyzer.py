@@ -72,11 +72,17 @@ async def analyze_transcript(transcript: TranscriptResult) -> AnalysisResult:
 
     response = await client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=8192,
+        max_tokens=16384,
         messages=[{"role": "user", "content": full_prompt}],
     )
 
-    return _parse_response(response.content[0].text)
+    raw_text = response.content[0].text
+    try:
+        return _parse_response(raw_text)
+    except (ValueError, json.JSONDecodeError):
+        logger.warning("Failed to parse Claude response, asking Claude to fix JSON...")
+        data = await _fix_json_with_claude(raw_text)
+        return _parse_response_from_dict(data)
 
 
 async def _analyze_long_transcript(transcript: TranscriptResult) -> AnalysisResult:
@@ -107,7 +113,12 @@ Full timestamps range: {format_timestamp(transcript.segments[0].start)} - {forma
         messages=[{"role": "user", "content": toc_prompt}],
     )
 
-    toc_data = _parse_json(response.content[0].text)
+    toc_raw = response.content[0].text
+    try:
+        toc_data = _parse_json(toc_raw)
+    except (ValueError, json.JSONDecodeError):
+        logger.warning("Failed to parse TOC JSON, asking Claude to fix...")
+        toc_data = await _fix_json_with_claude(toc_raw)
     summary = toc_data.get("summary", "")
     section_boundaries = toc_data.get("sections", [])
 
@@ -162,7 +173,7 @@ def _parse_time(time_str: str) -> float:
     return 0.0
 
 
-def _parse_json(text: str) -> dict:
+def _strip_markdown_fence(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
@@ -170,39 +181,44 @@ def _parse_json(text: str) -> dict:
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
+    return text
 
+
+def _parse_json(text: str) -> dict:
+    text = _strip_markdown_fence(text)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Fix unescaped newlines inside JSON string values
-        import re
-        fixed = re.sub(
-            r'(?<=": ")(.*?)(?="[,\s\n]*["\}\]])',
-            lambda m: m.group(0).replace('\n', '\\n').replace('\r', '\\r'),
-            text,
-            flags=re.DOTALL,
-        )
+        pass
+
+    # Extract JSON object if surrounded by extra text
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1:
         try:
-            return json.loads(fixed)
+            return json.loads(text[start:end + 1])
         except json.JSONDecodeError:
-            # Last resort: extract JSON object from text
-            start = text.find('{')
-            end = text.rfind('}')
-            if start != -1 and end != -1:
-                raw = text[start:end + 1]
-                # Replace literal newlines inside strings
-                fixed2 = re.sub(
-                    r'("(?:[^"\\]|\\.)*")',
-                    lambda m: m.group(0).replace('\n', '\\n'),
-                    raw,
-                )
-                return json.loads(fixed2)
-            raise
+            pass
+
+    raise ValueError(f"Failed to parse JSON from Claude response")
 
 
-def _parse_response(text: str) -> AnalysisResult:
-    data = _parse_json(text)
+async def _fix_json_with_claude(broken_json: str) -> dict:
+    """Ask Claude to fix broken JSON."""
+    response = await client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=16384,
+        messages=[{"role": "user", "content": (
+            "The following JSON is malformed. Fix it and return ONLY valid JSON, nothing else. "
+            "Do not use literal newlines inside string values. "
+            "Do not wrap in markdown code blocks.\n\n"
+            + broken_json
+        )}],
+    )
+    return _parse_json(response.content[0].text)
 
+
+def _parse_response_from_dict(data: dict) -> AnalysisResult:
     sections = []
     for sec in data.get("sections", []):
         sections.append(
@@ -214,5 +230,9 @@ def _parse_response(text: str) -> AnalysisResult:
                 action_steps=sec.get("action_steps", []),
             )
         )
-
     return AnalysisResult(summary=data.get("summary", ""), sections=sections)
+
+
+def _parse_response(text: str) -> AnalysisResult:
+    data = _parse_json(text)
+    return _parse_response_from_dict(data)
