@@ -1,0 +1,140 @@
+import logging
+import os
+import re
+from pathlib import Path
+
+import yt_dlp
+from pydub import AudioSegment
+
+from config import CHUNK_OVERLAP_SEC, CHUNK_SIZE_MB, MAX_VIDEO_DURATION_HOURS, TEMP_DIR
+
+logger = logging.getLogger(__name__)
+
+YOUTUBE_URL_PATTERN = re.compile(
+    r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+"
+)
+
+
+def is_valid_youtube_url(url: str) -> bool:
+    return bool(YOUTUBE_URL_PATTERN.match(url.strip()))
+
+
+def extract_video_id(url: str) -> str:
+    match = re.search(r"(?:v=|youtu\.be/|shorts/)([\w\-]+)", url)
+    return match.group(1) if match else ""
+
+
+def download_audio(url: str, session_dir: str) -> tuple[str, str]:
+    """Download audio from YouTube video. Returns (audio_path, video_title)."""
+    os.makedirs(session_dir, exist_ok=True)
+    output_path = os.path.join(session_dir, "audio.%(ext)s")
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "64",
+            }
+        ],
+        "postprocessor_args": ["-ac", "1"],
+        "outtmpl": output_path,
+        "noplaylist": True,
+        "quiet": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        duration = info.get("duration", 0)
+        if duration > MAX_VIDEO_DURATION_HOURS * 3600:
+            raise ValueError(
+                f"Video is too long ({duration // 3600}h). Max is {MAX_VIDEO_DURATION_HOURS}h."
+            )
+        title = info.get("title", "Untitled")
+        ydl.download([url])
+
+    audio_path = os.path.join(session_dir, "audio.mp3")
+    if not os.path.exists(audio_path):
+        # yt-dlp may produce different extensions
+        for f in os.listdir(session_dir):
+            if f.startswith("audio."):
+                audio_path = os.path.join(session_dir, f)
+                break
+
+    return audio_path, title
+
+
+def split_audio_if_needed(audio_path: str, session_dir: str) -> list[str]:
+    """Split audio into chunks if it exceeds the size limit. Returns list of chunk paths."""
+    file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+
+    if file_size_mb <= CHUNK_SIZE_MB:
+        return [audio_path]
+
+    logger.info(f"Audio is {file_size_mb:.1f}MB, splitting into chunks...")
+    audio = AudioSegment.from_file(audio_path)
+
+    total_duration_ms = len(audio)
+    # Estimate chunk duration based on file size ratio
+    chunk_duration_ms = int(total_duration_ms * (CHUNK_SIZE_MB / file_size_mb))
+    overlap_ms = CHUNK_OVERLAP_SEC * 1000
+
+    chunks = []
+    start = 0
+    chunk_index = 0
+
+    while start < total_duration_ms:
+        end = min(start + chunk_duration_ms, total_duration_ms)
+        chunk = audio[start:end]
+
+        chunk_path = os.path.join(session_dir, f"chunk_{chunk_index:03d}.mp3")
+        chunk.export(chunk_path, format="mp3", parameters=["-ac", "1", "-ab", "64k"])
+        chunks.append(chunk_path)
+
+        logger.info(
+            f"Chunk {chunk_index}: {start / 1000:.1f}s - {end / 1000:.1f}s "
+            f"({os.path.getsize(chunk_path) / (1024 * 1024):.1f}MB)"
+        )
+
+        chunk_index += 1
+        if end >= total_duration_ms:
+            break
+        start = end - overlap_ms
+
+    return chunks
+
+
+def get_chunk_offset(chunk_index: int, chunks: list[str], audio_path: str) -> float:
+    """Calculate the time offset for a chunk, accounting for overlap."""
+    if chunk_index == 0:
+        return 0.0
+
+    audio = AudioSegment.from_file(audio_path)
+    total_duration_ms = len(audio)
+    file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+    chunk_duration_ms = int(total_duration_ms * (CHUNK_SIZE_MB / file_size_mb))
+    overlap_ms = CHUNK_OVERLAP_SEC * 1000
+
+    offset_ms = chunk_index * (chunk_duration_ms - overlap_ms)
+    return offset_ms / 1000.0
+
+
+def get_session_dir(user_id: int) -> str:
+    session_dir = os.path.join(TEMP_DIR, str(user_id))
+    os.makedirs(session_dir, exist_ok=True)
+    return session_dir
+
+
+def cleanup_session(session_dir: str) -> None:
+    """Remove all files in the session directory."""
+    if os.path.exists(session_dir):
+        for f in os.listdir(session_dir):
+            try:
+                os.remove(os.path.join(session_dir, f))
+            except OSError:
+                pass
+        try:
+            os.rmdir(session_dir)
+        except OSError:
+            pass
