@@ -9,6 +9,7 @@ from aiogram.types import Message, FSInputFile
 from services.youtube import (
     is_valid_youtube_url,
     download_audio,
+    download_thumbnail,
     split_audio_if_needed,
     get_session_dir,
     cleanup_session,
@@ -106,8 +107,10 @@ async def _process_video(message: Message, url: str) -> None:
 
         # Step 4: Generate document
         await status_msg.edit_text("📄 [4/4] Создаю документ...")
+        thumbnail_path = await asyncio.to_thread(download_thumbnail, url, session_dir)
         docx_path = await asyncio.to_thread(
-            generate_docx, title, analysis, session_dir
+            generate_docx, title, analysis, session_dir,
+            video_url=url, thumbnail_path=thumbnail_path,
         )
 
         # Send document

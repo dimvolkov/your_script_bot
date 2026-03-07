@@ -126,6 +126,25 @@ def get_session_dir(user_id: int) -> str:
     return session_dir
 
 
+def download_thumbnail(url: str, session_dir: str) -> str | None:
+    """Download video thumbnail. Returns path or None on failure."""
+    video_id = extract_video_id(url)
+    if not video_id:
+        return None
+
+    import urllib.request
+    thumb_path = os.path.join(session_dir, "thumbnail.jpg")
+    for quality in ("maxresdefault", "hqdefault"):
+        thumb_url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
+        try:
+            urllib.request.urlretrieve(thumb_url, thumb_path)
+            if os.path.getsize(thumb_path) > 1000:
+                return thumb_path
+        except Exception:
+            continue
+    return None
+
+
 def cleanup_session(session_dir: str) -> None:
     """Remove all files in the session directory."""
     if os.path.exists(session_dir):

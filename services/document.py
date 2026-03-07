@@ -1,14 +1,35 @@
 import os
 
 from docx import Document
-from docx.shared import Pt, Inches
+from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 
 from models.transcript import AnalysisResult
 
 
+def _add_hyperlink(paragraph, url: str, text: str):
+    """Add a hyperlink to a paragraph."""
+    part = paragraph.part
+    r_id = part.relate_to(
+        url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True
+    )
+    hyperlink = paragraph._element.makeelement(qn("w:hyperlink"), {qn("r:id"): r_id})
+    new_run = paragraph._element.makeelement(qn("w:r"), {})
+    rPr = paragraph._element.makeelement(qn("w:rPr"), {})
+    c = paragraph._element.makeelement(qn("w:color"), {qn("w:val"): "0563C1"})
+    u = paragraph._element.makeelement(qn("w:u"), {qn("w:val"): "single"})
+    rPr.append(c)
+    rPr.append(u)
+    new_run.append(rPr)
+    new_run.text = text
+    hyperlink.append(new_run)
+    paragraph._element.append(hyperlink)
+
+
 def generate_docx(
-    title: str, analysis: AnalysisResult, output_dir: str
+    title: str, analysis: AnalysisResult, output_dir: str,
+    video_url: str = "", thumbnail_path: str | None = None,
 ) -> str:
     """Generate a .docx document with the analysis results."""
     doc = Document()
@@ -20,16 +41,25 @@ def generate_docx(
     # Title
     heading = doc.add_heading(title, level=1)
 
+    # Video URL
+    if video_url:
+        url_para = doc.add_paragraph()
+        _add_hyperlink(url_para, video_url, video_url)
+
+    # Thumbnail
+    if thumbnail_path and os.path.exists(thumbnail_path):
+        doc.add_picture(thumbnail_path, width=Inches(5))
+
     # Summary
     doc.add_heading("Саммари", level=2)
     doc.add_paragraph(analysis.summary)
 
     # Table of contents
     doc.add_heading("Оглавление", level=2)
-    for i, section in enumerate(analysis.sections, 1):
+    for section in analysis.sections:
         time_range = f"[{section.start_time} - {section.end_time}]"
         doc.add_paragraph(
-            f"{i}. {section.title} {time_range}",
+            f"{section.title} {time_range}",
             style="List Number",
         )
 
