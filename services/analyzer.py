@@ -20,7 +20,10 @@ Instructions:
 3. For each section provide: title (in Russian), start_time, end_time, content (the transcript text for that section, translated to Russian), and action_steps — a list of concrete, practical step-by-step instructions that a viewer should follow based on this section's content. Each step should be a clear actionable instruction in Russian.
 4. If the original language is already Russian, keep the text as-is but still structure it into sections.
 
-IMPORTANT: Respond ONLY with valid JSON in this exact format:
+IMPORTANT:
+- Respond ONLY with valid JSON in this exact format.
+- Do NOT use literal newlines inside string values. Use spaces instead.
+- Make sure all JSON strings are properly escaped.
 {
   "summary": "...",
   "sections": [
@@ -166,7 +169,35 @@ def _parse_json(text: str) -> dict:
         text = "\n".join(lines[1:])
         if text.endswith("```"):
             text = text[:-3]
-    return json.loads(text)
+        text = text.strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Fix unescaped newlines inside JSON string values
+        import re
+        fixed = re.sub(
+            r'(?<=": ")(.*?)(?="[,\s\n]*["\}\]])',
+            lambda m: m.group(0).replace('\n', '\\n').replace('\r', '\\r'),
+            text,
+            flags=re.DOTALL,
+        )
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            # Last resort: extract JSON object from text
+            start = text.find('{')
+            end = text.rfind('}')
+            if start != -1 and end != -1:
+                raw = text[start:end + 1]
+                # Replace literal newlines inside strings
+                fixed2 = re.sub(
+                    r'("(?:[^"\\]|\\.)*")',
+                    lambda m: m.group(0).replace('\n', '\\n'),
+                    raw,
+                )
+                return json.loads(fixed2)
+            raise
 
 
 def _parse_response(text: str) -> AnalysisResult:
