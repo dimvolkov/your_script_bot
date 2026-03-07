@@ -3,6 +3,7 @@ import logging
 import os
 
 from aiogram import Router, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
 
@@ -183,6 +184,14 @@ async def _process_telegram_video(message: Message) -> None:
         await message.answer_document(doc_file, caption=f"Транскрипт: {title}")
         await status_msg.delete()
 
+    except TelegramBadRequest as e:
+        if "file is too big" in str(e):
+            await status_msg.edit_text(
+                "Файл слишком большой (лимит Telegram — 20 МБ).\n"
+                "Попробуйте отправить видео меньшего размера или загрузить его на YouTube и прислать ссылку."
+            )
+        else:
+            await status_msg.edit_text(f"Ошибка Telegram: {e}")
     except ValueError as e:
         await status_msg.edit_text(f"Ошибка: {e}")
     except Exception:
