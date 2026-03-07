@@ -111,6 +111,7 @@ async def _process_video(message: Message, url: str) -> None:
         docx_path = await asyncio.to_thread(
             generate_docx, title, analysis, session_dir,
             video_url=url, thumbnail_path=thumbnail_path,
+            segments=transcript.segments,
         )
 
         # Send document

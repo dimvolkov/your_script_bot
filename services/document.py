@@ -5,7 +5,21 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-from models.transcript import AnalysisResult
+from models.transcript import AnalysisResult, Segment
+
+def _format_timestamp(seconds: float) -> str:
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _parse_time(time_str: str) -> float:
+    parts = time_str.split(":")
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    elif len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    return 0.0
 
 
 def _add_hyperlink(paragraph, url: str, text: str):
@@ -30,6 +44,7 @@ def _add_hyperlink(paragraph, url: str, text: str):
 def generate_docx(
     title: str, analysis: AnalysisResult, output_dir: str,
     video_url: str = "", thumbnail_path: str | None = None,
+    segments: list[Segment] | None = None,
 ) -> str:
     """Generate a .docx document with the analysis results."""
     doc = Document()
@@ -71,12 +86,24 @@ def generate_docx(
             for step in section.action_steps:
                 doc.add_paragraph(step, style="List Bullet")
 
-    # Full transcript by sections
+    # Translated/structured content by sections
     doc.add_heading("Транскрипт", level=2)
     for section in analysis.sections:
         time_range = f"[{section.start_time} - {section.end_time}]"
         doc.add_heading(f"{section.title} {time_range}", level=3)
         doc.add_paragraph(section.content)
+
+    # Exact original transcription by sections
+    if segments:
+        doc.add_heading("Точная транскрипция", level=2)
+        for section in analysis.sections:
+            time_range = f"[{section.start_time} - {section.end_time}]"
+            doc.add_heading(f"{section.title} {time_range}", level=3)
+            start_sec = _parse_time(section.start_time)
+            end_sec = _parse_time(section.end_time)
+            for seg in segments:
+                if start_sec <= seg.start < end_sec:
+                    doc.add_paragraph(f"[{_format_timestamp(seg.start)}] {seg.text}")
 
     # Save
     safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in title)[:50]
