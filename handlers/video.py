@@ -41,8 +41,59 @@ HELP_TEXT = (
     "Команды:\n"
     "/start — приветствие\n"
     "/help — эта справка\n"
-    "/transcribe <url> — транскрибировать видео"
+    "/transcribe <url> — транскрибировать видео\n"
+    "/balance — проверить статус API ключей"
 )
+
+
+@router.message(Command("balance"))
+async def cmd_balance(message: Message) -> None:
+    import httpx
+    from config import OPENAI_API_KEY, ANTHROPIC_API_KEY
+
+    lines = []
+
+    # OpenAI balance
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get subscription info
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+            resp = await client.get(
+                "https://api.openai.com/v1/dashboard/billing/subscription",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                limit = data.get("hard_limit_usd", "?")
+                lines.append(f"🤖 OpenAI: лимит ${limit}")
+            else:
+                lines.append(f"🤖 OpenAI: не удалось получить баланс (код {resp.status_code})")
+    except Exception as e:
+        lines.append(f"🤖 OpenAI: ошибка — {e}")
+
+    # Anthropic balance
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            }
+            resp = await client.get(
+                "https://api.anthropic.com/v1/messages/count_tokens",
+                headers=headers,
+            )
+            # Anthropic doesn't have a public balance endpoint,
+            # so we just check if the key is valid
+            if resp.status_code in (200, 400, 404):
+                lines.append("🧠 Anthropic: ключ активен ✅")
+            elif resp.status_code == 401:
+                lines.append("🧠 Anthropic: ключ недействителен ❌")
+            else:
+                lines.append(f"🧠 Anthropic: статус {resp.status_code}")
+    except Exception as e:
+        lines.append(f"🧠 Anthropic: ошибка — {e}")
+
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("start"))
