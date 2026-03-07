@@ -93,18 +93,6 @@ def generate_docx(
         doc.add_heading(f"{section.title} {time_range}", level=3)
         doc.add_paragraph(section.content)
 
-    # Exact original transcription by sections
-    if segments:
-        doc.add_heading("Точная транскрипция", level=2)
-        for section in analysis.sections:
-            time_range = f"[{section.start_time} - {section.end_time}]"
-            doc.add_heading(f"{section.title} {time_range}", level=3)
-            start_sec = _parse_time(section.start_time)
-            end_sec = _parse_time(section.end_time)
-            for seg in segments:
-                if start_sec <= seg.start < end_sec:
-                    doc.add_paragraph(f"[{_format_timestamp(seg.start)}] {seg.text}")
-
     # Save
     safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in title)[:50]
     filename = f"{safe_title}.docx".strip()
