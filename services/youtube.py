@@ -126,6 +126,18 @@ def get_session_dir(user_id: int) -> str:
     return session_dir
 
 
+def extract_audio_from_file(video_path: str, session_dir: str) -> str:
+    """Extract audio from a video file using ffmpeg. Returns audio path."""
+    import subprocess
+    audio_path = os.path.join(session_dir, "audio.mp3")
+    subprocess.run(
+        ["ffmpeg", "-i", video_path, "-vn", "-ac", "1", "-ab", "64k", "-f", "mp3", audio_path, "-y"],
+        check=True,
+        capture_output=True,
+    )
+    return audio_path
+
+
 def download_thumbnail(url: str, session_dir: str) -> str | None:
     """Download video thumbnail. Returns path or None on failure."""
     video_id = extract_video_id(url)
