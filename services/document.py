@@ -22,7 +22,7 @@ def _parse_time(time_str: str) -> float:
     return 0.0
 
 
-def _add_hyperlink(paragraph, url: str, text: str):
+def _add_hyperlink(paragraph, url: str, text: str, font_size=None):
     """Add a hyperlink to a paragraph."""
     part = paragraph.part
     r_id = part.relate_to(
@@ -35,10 +35,31 @@ def _add_hyperlink(paragraph, url: str, text: str):
     u = paragraph._element.makeelement(qn("w:u"), {qn("w:val"): "single"})
     rPr.append(c)
     rPr.append(u)
+    if font_size:
+        sz = paragraph._element.makeelement(qn("w:sz"), {qn("w:val"): str(font_size * 2)})
+        rPr.append(sz)
     new_run.append(rPr)
     new_run.text = text
     hyperlink.append(new_run)
     paragraph._element.append(hyperlink)
+
+
+def _make_timestamp_url(video_url: str, time_str: str) -> str:
+    """Create a YouTube URL with timestamp parameter."""
+    seconds = int(_parse_time(time_str))
+    if "?" in video_url:
+        return f"{video_url}&t={seconds}s"
+    return f"{video_url}?t={seconds}s"
+
+
+def _add_heading_with_timestamp_link(doc, title: str, time_range: str, video_url: str, start_time: str, level: int = 3):
+    """Add a heading with title text and a clickable timestamp link."""
+    heading = doc.add_heading("", level=level)
+    heading.add_run(f"{title} ")
+    if video_url:
+        _add_hyperlink(heading, _make_timestamp_url(video_url, start_time), time_range)
+    else:
+        heading.add_run(time_range)
 
 
 def generate_docx(
@@ -73,10 +94,11 @@ def generate_docx(
     doc.add_heading("Оглавление", level=2)
     for section in analysis.sections:
         time_range = f"[{section.start_time} - {section.end_time}]"
-        doc.add_paragraph(
-            f"{section.title} {time_range}",
-            style="List Number",
-        )
+        para = doc.add_paragraph(f"{section.title} ", style="List Number")
+        if video_url:
+            _add_hyperlink(para, _make_timestamp_url(video_url, section.start_time), time_range)
+        else:
+            para.add_run(time_range)
 
     # Practical action steps by section
     doc.add_heading("Пошаговые инструкции", level=2)
@@ -90,7 +112,7 @@ def generate_docx(
     doc.add_heading("Транскрипт", level=2)
     for section in analysis.sections:
         time_range = f"[{section.start_time} - {section.end_time}]"
-        doc.add_heading(f"{section.title} {time_range}", level=3)
+        _add_heading_with_timestamp_link(doc, section.title, time_range, video_url, section.start_time)
         doc.add_paragraph(section.content)
 
     # Save
