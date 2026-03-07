@@ -63,6 +63,14 @@ def generate_docx(
             style="List Number",
         )
 
+    # Practical action steps by section
+    doc.add_heading("Пошаговые инструкции", level=2)
+    for section in analysis.sections:
+        if section.action_steps:
+            doc.add_heading(section.title, level=3)
+            for step in section.action_steps:
+                doc.add_paragraph(step, style="List Bullet")
+
     # Full transcript by sections
     doc.add_heading("Транскрипт", level=2)
     for section in analysis.sections:

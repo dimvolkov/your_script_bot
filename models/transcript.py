@@ -21,6 +21,7 @@ class TopicSection:
     start_time: str
     end_time: str
     content: str
+    action_steps: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -17,7 +17,7 @@ Your task is to analyze it and produce a structured JSON response.
 Instructions:
 1. Write a concise summary (3-5 sentences) of the video content IN RUSSIAN.
 2. Divide the transcript into logical topic sections (5-15 sections depending on length).
-3. For each section provide: title (in Russian), start_time, end_time, and content (the transcript text for that section, translated to Russian).
+3. For each section provide: title (in Russian), start_time, end_time, content (the transcript text for that section, translated to Russian), and action_steps — a list of concrete, practical step-by-step instructions that a viewer should follow based on this section's content. Each step should be a clear actionable instruction in Russian.
 4. If the original language is already Russian, keep the text as-is but still structure it into sections.
 
 IMPORTANT: Respond ONLY with valid JSON in this exact format:
@@ -28,7 +28,8 @@ IMPORTANT: Respond ONLY with valid JSON in this exact format:
       "title": "Section title in Russian",
       "start_time": "MM:SS",
       "end_time": "MM:SS",
-      "content": "Translated/original text of this section in Russian"
+      "content": "Translated/original text of this section in Russian",
+      "action_steps": ["Шаг 1: ...", "Шаг 2: ...", "..."]
     }
   ]
 }
@@ -179,6 +180,7 @@ def _parse_response(text: str) -> AnalysisResult:
                 start_time=sec.get("start_time", ""),
                 end_time=sec.get("end_time", ""),
                 content=sec.get("content", ""),
+                action_steps=sec.get("action_steps", []),
             )
         )
 
