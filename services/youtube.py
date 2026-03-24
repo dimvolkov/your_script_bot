@@ -54,13 +54,33 @@ def download_audio(url: str, session_dir: str) -> tuple[str, str]:
         title = info.get("title", "Untitled")
         ydl.download([url])
 
-    audio_path = os.path.join(session_dir, "audio.mp3")
-    if not os.path.exists(audio_path):
-        # yt-dlp may produce different extensions
+    # Find the downloaded file
+    raw_path = os.path.join(session_dir, "audio.mp3")
+    if not os.path.exists(raw_path):
         for f in os.listdir(session_dir):
             if f.startswith("audio."):
-                audio_path = os.path.join(session_dir, f)
+                raw_path = os.path.join(session_dir, f)
                 break
+
+    # Force re-encode to small file: 16kHz mono 32kbps
+    import subprocess
+    compressed_path = os.path.join(session_dir, "audio_small.mp3")
+    subprocess.run(
+        ["ffmpeg", "-i", raw_path, "-ac", "1", "-ar", "16000", "-ab", "24k",
+         "-f", "mp3", compressed_path, "-y"],
+        check=True, capture_output=True,
+    )
+    os.replace(compressed_path, os.path.join(session_dir, "audio.mp3"))
+    # Remove original if different
+    if raw_path != os.path.join(session_dir, "audio.mp3"):
+        try:
+            os.remove(raw_path)
+        except OSError:
+            pass
+
+    audio_path = os.path.join(session_dir, "audio.mp3")
+    size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+    logger.info(f"Compressed audio: {size_mb:.1f} MB")
 
     return audio_path, title
 
@@ -131,7 +151,7 @@ def extract_audio_from_file(video_path: str, session_dir: str) -> str:
     import subprocess
     audio_path = os.path.join(session_dir, "audio.mp3")
     subprocess.run(
-        ["ffmpeg", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-ab", "32k", "-f", "mp3", audio_path, "-y"],
+        ["ffmpeg", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-ab", "24k", "-f", "mp3", audio_path, "-y"],
         check=True,
         capture_output=True,
     )
