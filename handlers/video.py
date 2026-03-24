@@ -49,13 +49,24 @@ HELP_TEXT = (
 @router.message(Command("balance"))
 async def cmd_balance(message: Message) -> None:
     import httpx
+    import socket
     from config import OPENAI_API_KEY, ANTHROPIC_API_KEY
 
     lines = []
 
-    # OpenAI — check key by listing models
+    # Network diagnostics
+    for host in ("api.openai.com", "api.anthropic.com"):
+        try:
+            ip = socket.getaddrinfo(host, 443)[0][4][0]
+            lines.append(f"🌐 {host} → {ip}")
+        except Exception as e:
+            lines.append(f"🌐 {host} → DNS ошибка: {e}")
+
+    # OpenAI key check
+    lines.append(f"🔑 OpenAI ключ: {'задан' if OPENAI_API_KEY else 'НЕ задан'} ({OPENAI_API_KEY[:8]}...)" if OPENAI_API_KEY else "🔑 OpenAI ключ: НЕ задан")
+
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
             resp = await client.get(
                 "https://api.openai.com/v1/models",
@@ -71,11 +82,13 @@ async def cmd_balance(message: Message) -> None:
             else:
                 lines.append(f"🤖 OpenAI: статус {resp.status_code}")
     except Exception as e:
-        lines.append(f"🤖 OpenAI: ошибка — {e}")
+        lines.append(f"🤖 OpenAI: ошибка — {type(e).__name__}: {e}")
 
-    # Anthropic — check key by sending minimal request
+    # Anthropic key check
+    lines.append(f"🔑 Anthropic ключ: {'задан' if ANTHROPIC_API_KEY else 'НЕ задан'}")
+
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             headers = {
                 "x-api-key": ANTHROPIC_API_KEY,
                 "anthropic-version": "2023-06-01",
@@ -95,7 +108,7 @@ async def cmd_balance(message: Message) -> None:
             else:
                 lines.append(f"🧠 Anthropic: статус {resp.status_code}")
     except Exception as e:
-        lines.append(f"🧠 Anthropic: ошибка — {e}")
+        lines.append(f"🧠 Anthropic: ошибка — {type(e).__name__}: {e}")
 
     await message.answer("\n".join(lines))
 
