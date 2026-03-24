@@ -115,46 +115,56 @@ async def cmd_balance(message: Message) -> None:
 
 @router.message(Command("test_whisper"))
 async def cmd_test_whisper(message: Message) -> None:
-    """Send a tiny test file to Whisper API to diagnose connection issues."""
+    """Download real YouTube audio and test Whisper API with it."""
     import httpx
-    import struct
-    import io
     from config import OPENAI_API_KEY
+    from services.youtube import download_audio, get_session_dir, cleanup_session
 
-    await message.answer("🔧 Тестирую Whisper API...")
-
-    # Generate minimal valid WAV file (0.1s silence)
-    sample_rate = 16000
-    num_samples = 1600  # 0.1 seconds
-    audio_data = struct.pack(f"<{num_samples}h", *([0] * num_samples))
-    wav_buf = io.BytesIO()
-    # WAV header
-    data_size = len(audio_data)
-    wav_buf.write(b"RIFF")
-    wav_buf.write(struct.pack("<I", 36 + data_size))
-    wav_buf.write(b"WAVE")
-    wav_buf.write(b"fmt ")
-    wav_buf.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16))
-    wav_buf.write(b"data")
-    wav_buf.write(struct.pack("<I", data_size))
-    wav_buf.write(audio_data)
-    wav_buf.seek(0)
+    url = "https://youtu.be/xBIVlM435Zg"
+    session_dir = get_session_dir(999)
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
-            resp = await client.post(
+        await message.answer("🔧 1. Скачиваю аудио...")
+        audio_path, title = await asyncio.to_thread(download_audio, url, session_dir)
+
+        file_size = os.path.getsize(audio_path)
+        with open(audio_path, "rb") as f:
+            magic = f.read(16)
+            file_bytes = f.seek(0) or f.read()
+
+        await message.answer(
+            f"🔧 2. Файл: {audio_path}\n"
+            f"Размер: {file_size / 1024 / 1024:.1f} MB\n"
+            f"Magic bytes: {magic.hex()}\n"
+            f"Отправляю в Whisper..."
+        )
+
+        # Test 1: simple json format
+        with httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
+            resp = client.post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                files={"file": ("test.wav", wav_buf, "audio/wav")},
+                files={"file": ("audio.mp3", file_bytes, "audio/mpeg")},
                 data={"model": "whisper-1", "response_format": "json"},
             )
-        await message.answer(f"✅ Whisper ответил: {resp.status_code}\n<code>{resp.text[:500]}</code>", parse_mode="HTML")
+
+        if resp.status_code == 200:
+            text = resp.json().get("text", "")[:300]
+            await message.answer(f"✅ Whisper OK!\n<code>{text}</code>", parse_mode="HTML")
+        else:
+            await message.answer(
+                f"❌ Статус: {resp.status_code}\n"
+                f"Headers: {dict(resp.headers)}\n"
+                f"Body: {resp.text[:300]}"
+            )
     except Exception as e:
         cause = e.__cause__ or e.__context__
         err = f"❌ {type(e).__name__}: {e}"
         if cause:
             err += f"\nCaused by: {type(cause).__name__}: {cause}"
         await message.answer(err)
+    finally:
+        cleanup_session(session_dir)
 
 
 @router.message(Command("start"))
