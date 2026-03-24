@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import time
 
 import requests
@@ -15,7 +16,31 @@ WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions"
 MAX_RETRIES = 3
 
 
-def _call_whisper_sync(file_path: str) -> dict:
+def _parse_srt(srt_text: str) -> list[Segment]:
+    """Parse SRT subtitle format into Segment list."""
+    segments = []
+    blocks = re.split(r"\n\n+", srt_text.strip())
+    for block in blocks:
+        lines = block.strip().split("\n")
+        if len(lines) < 3:
+            continue
+        # Parse timestamp line: "00:00:00,000 --> 00:00:05,000"
+        ts_match = re.match(
+            r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})",
+            lines[1],
+        )
+        if not ts_match:
+            continue
+        g = [int(x) for x in ts_match.groups()]
+        start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000
+        end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000
+        text = " ".join(lines[2:]).strip()
+        if text:
+            segments.append(Segment(start=start, end=end, text=text))
+    return segments
+
+
+def _call_whisper_sync(file_path: str) -> tuple[list[Segment], str]:
     """Synchronous Whisper API call using requests — runs in a thread."""
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
@@ -29,7 +54,7 @@ def _call_whisper_sync(file_path: str) -> dict:
                     files={"file": (os.path.basename(file_path), f, "audio/mpeg")},
                     data={
                         "model": WHISPER_MODEL,
-                        "response_format": "verbose_json",
+                        "response_format": "srt",
                     },
                     timeout=600,
                 )
@@ -44,7 +69,9 @@ def _call_whisper_sync(file_path: str) -> dict:
                 raise RuntimeError(
                     f"Whisper API error {resp.status_code}: {resp.text[:800]}"
                 )
-            return resp.json()
+
+            segments = _parse_srt(resp.text)
+            return segments
 
         except requests.RequestException as e:
             last_error = e
@@ -60,13 +87,10 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
     size_mb = os.path.getsize(file_path) / (1024 * 1024)
     logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
 
-    result = await asyncio.to_thread(_call_whisper_sync, file_path)
+    segments = await asyncio.to_thread(_call_whisper_sync, file_path)
 
-    segments = []
-    for seg in result.get("segments", []):
-        segments.append(Segment(start=seg["start"], end=seg["end"], text=seg["text"].strip()))
-
-    return segments, result.get("language", "")
+    # Language detection not available in SRT format, default to empty
+    return segments, ""
 
 
 async def transcribe_audio(
