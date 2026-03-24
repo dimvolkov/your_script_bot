@@ -1,5 +1,6 @@
 import logging
 
+import httpx
 from openai import AsyncOpenAI
 
 from config import OPENAI_API_KEY, WHISPER_MODEL, CHUNK_OVERLAP_SEC
@@ -8,11 +9,18 @@ from services.youtube import get_chunk_offset
 
 logger = logging.getLogger(__name__)
 
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+client = AsyncOpenAI(
+    api_key=OPENAI_API_KEY,
+    timeout=httpx.Timeout(300.0, connect=30.0),
+)
 
 
 async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
     """Transcribe a single audio file via Whisper API."""
+    import os
+    size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
+
     with open(file_path, "rb") as f:
         response = await client.audio.transcriptions.create(
             model=WHISPER_MODEL,
