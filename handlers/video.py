@@ -144,7 +144,7 @@ async def cmd_test_whisper(message: Message) -> None:
                     "https://api.openai.com/v1/audio/transcriptions",
                     headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
                     files={"file": ("audio.mp3", f, "audio/mpeg")},
-                    data={"model": "whisper-1", "response_format": "json"},
+                    data={"model": "gpt-4o-mini-transcribe", "response_format": "json"},
                     timeout=300,
                 )
 

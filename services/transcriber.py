@@ -66,7 +66,7 @@ def _call_whisper_sync(file_path: str) -> str:
                     headers=headers,
                     files={"file": ("audio.mp3", f, "audio/mpeg")},
                     data={
-                        "model": "whisper-1",
+                        "model": "gpt-4o-mini-transcribe",
                         "response_format": "json",
                     },
                     timeout=600,
