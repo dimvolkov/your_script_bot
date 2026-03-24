@@ -29,11 +29,11 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             files = {"file": (os.path.basename(file_path), file_bytes, "audio/mpeg")}
-            data = {
-                "model": WHISPER_MODEL,
-                "response_format": "verbose_json",
-                "timestamp_granularities[]": "segment",
-            }
+            data = [
+                ("model", WHISPER_MODEL),
+                ("response_format", "verbose_json"),
+                ("timestamp_granularities[]", "segment"),
+            ]
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(300.0, connect=30.0),
             ) as client:
@@ -43,6 +43,13 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
                     files=files,
                     data=data,
                 )
+
+            if response.status_code == 500:
+                logger.warning(f"Whisper API attempt {attempt}/{MAX_RETRIES}: 500 error: {response.text[:200]}")
+                if attempt == MAX_RETRIES:
+                    break
+                await asyncio.sleep(2 * attempt)
+                continue
             break
         except (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as e:
             logger.warning(f"Whisper API attempt {attempt}/{MAX_RETRIES} failed: {type(e).__name__}: {e}")
@@ -51,7 +58,7 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
             await asyncio.sleep(2 * attempt)
 
     if response.status_code != 200:
-        raise RuntimeError(f"Whisper API error {response.status_code}: {response.text[:500]}")
+        raise RuntimeError(f"Whisper API error {response.status_code}: {response.text[:800]}")
 
     result = response.json()
 
