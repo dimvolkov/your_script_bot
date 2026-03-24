@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ from services.youtube import get_chunk_offset
 logger = logging.getLogger(__name__)
 
 WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions"
+MAX_RETRIES = 3
 
 
 async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
@@ -18,22 +20,35 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
     size_mb = os.path.getsize(file_path) / (1024 * 1024)
     logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
 
+    # Read file into memory to avoid stream issues
     with open(file_path, "rb") as f:
-        files = {"file": (os.path.basename(file_path), f, "audio/mpeg")}
-        data = {
-            "model": WHISPER_MODEL,
-            "response_format": "verbose_json",
-            "timestamp_granularities[]": "segment",
-        }
-        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+        file_bytes = f.read()
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
-            response = await client.post(
-                WHISPER_API_URL,
-                headers=headers,
-                files=files,
-                data=data,
-            )
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            files = {"file": (os.path.basename(file_path), file_bytes, "audio/mpeg")}
+            data = {
+                "model": WHISPER_MODEL,
+                "response_format": "verbose_json",
+                "timestamp_granularities[]": "segment",
+            }
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(300.0, connect=30.0),
+            ) as client:
+                response = await client.post(
+                    WHISPER_API_URL,
+                    headers=headers,
+                    files=files,
+                    data=data,
+                )
+            break
+        except (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            logger.warning(f"Whisper API attempt {attempt}/{MAX_RETRIES} failed: {type(e).__name__}: {e}")
+            if attempt == MAX_RETRIES:
+                raise
+            await asyncio.sleep(2 * attempt)
 
     if response.status_code != 200:
         raise RuntimeError(f"Whisper API error {response.status_code}: {response.text[:500]}")
