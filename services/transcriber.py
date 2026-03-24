@@ -18,7 +18,7 @@ MAX_RETRIES = 3
 def _call_whisper_sync(file_path: str, file_bytes: bytes) -> dict:
     """Synchronous Whisper API call — runs in a thread."""
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    files = {"file": (os.path.basename(file_path), file_bytes, "audio/mpeg")}
+    files = {"file": (os.path.basename(file_path), file_bytes)}
     data = {
         "model": WHISPER_MODEL,
         "response_format": "verbose_json",
@@ -42,8 +42,11 @@ def _call_whisper_sync(file_path: str, file_bytes: bytes) -> dict:
                     continue
 
             if response.status_code != 200:
+                resp_headers = dict(response.headers)
                 raise RuntimeError(
-                    f"Whisper API error {response.status_code}: {response.text[:800]}"
+                    f"Whisper API error {response.status_code}\n"
+                    f"Headers: {resp_headers}\n"
+                    f"Body: {response.text[:500]}"
                 )
             return response.json()
 
