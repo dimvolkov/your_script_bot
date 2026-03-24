@@ -166,8 +166,6 @@ async def cmd_test_whisper(message: Message) -> None:
         await message.answer(err)
     finally:
         cleanup_session(session_dir)
-    finally:
-        cleanup_session(session_dir)
 
 
 @router.message(Command("start"))
