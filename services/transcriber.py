@@ -28,13 +28,19 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
     size_mb = os.path.getsize(file_path) / (1024 * 1024)
     logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
 
-    with open(file_path, "rb") as f:
-        response = await _get_client().audio.transcriptions.create(
-            model=WHISPER_MODEL,
-            file=f,
-            response_format="verbose_json",
-            timestamp_granularities=["segment"],
-        )
+    try:
+        with open(file_path, "rb") as f:
+            response = await _get_client().audio.transcriptions.create(
+                model=WHISPER_MODEL,
+                file=f,
+                response_format="verbose_json",
+                timestamp_granularities=["segment"],
+            )
+    except Exception as e:
+        cause = e.__cause__ or e.__context__
+        logger.error(f"Whisper API error: {type(e).__name__}: {e}")
+        logger.error(f"Underlying cause: {type(cause).__name__}: {cause}" if cause else "No underlying cause")
+        raise
 
     segments = []
     for seg in response.segments:

@@ -207,10 +207,11 @@ async def _process_youtube(message: Message, url: str) -> None:
         await status_msg.edit_text(f"Ошибка: {e}")
     except Exception as e:
         logger.exception("Error processing YouTube video")
-        import traceback
-        tb = traceback.format_exception(type(e), e, e.__traceback__)
-        short_tb = "".join(tb[-3:])[:800]
-        await status_msg.edit_text(f"Ошибка:\n\n<code>{short_tb}</code>", parse_mode="HTML")
+        cause = e.__cause__ or e.__context__
+        err_info = f"{type(e).__name__}: {e}"
+        if cause:
+            err_info += f"\n\nCaused by: {type(cause).__name__}: {cause}"
+        await status_msg.edit_text(f"Ошибка:\n\n<code>{err_info[:900]}</code>", parse_mode="HTML")
     finally:
         _active_users.discard(user_id)
         cleanup_session(session_dir)
