@@ -1,7 +1,7 @@
 import asyncio
-import json
 import logging
 import os
+import time
 
 import httpx
 
@@ -15,29 +15,21 @@ WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions"
 MAX_RETRIES = 3
 
 
-async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
-    """Transcribe a single audio file via Whisper API using httpx directly."""
-    size_mb = os.path.getsize(file_path) / (1024 * 1024)
-    logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
-
-    # Read file into memory to avoid stream issues
-    with open(file_path, "rb") as f:
-        file_bytes = f.read()
-
+def _call_whisper_sync(file_path: str, file_bytes: bytes) -> dict:
+    """Synchronous Whisper API call — runs in a thread."""
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    files = {"file": (os.path.basename(file_path), file_bytes, "audio/mpeg")}
+    data = [
+        ("model", WHISPER_MODEL),
+        ("response_format", "verbose_json"),
+        ("timestamp_granularities[]", "segment"),
+    ]
 
+    last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            files = {"file": (os.path.basename(file_path), file_bytes, "audio/mpeg")}
-            data = [
-                ("model", WHISPER_MODEL),
-                ("response_format", "verbose_json"),
-                ("timestamp_granularities[]", "segment"),
-            ]
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(300.0, connect=30.0),
-            ) as client:
-                response = await client.post(
+            with httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
+                response = client.post(
                     WHISPER_API_URL,
                     headers=headers,
                     files=files,
@@ -45,22 +37,35 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
                 )
 
             if response.status_code == 500:
-                logger.warning(f"Whisper API attempt {attempt}/{MAX_RETRIES}: 500 error: {response.text[:200]}")
-                if attempt == MAX_RETRIES:
-                    break
-                await asyncio.sleep(2 * attempt)
-                continue
-            break
+                logger.warning(f"Whisper attempt {attempt}/{MAX_RETRIES}: 500 — {response.text[:200]}")
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
+                    continue
+
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"Whisper API error {response.status_code}: {response.text[:800]}"
+                )
+            return response.json()
+
         except (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            logger.warning(f"Whisper API attempt {attempt}/{MAX_RETRIES} failed: {type(e).__name__}: {e}")
-            if attempt == MAX_RETRIES:
-                raise
-            await asyncio.sleep(2 * attempt)
+            last_error = e
+            logger.warning(f"Whisper attempt {attempt}/{MAX_RETRIES}: {type(e).__name__}: {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
 
-    if response.status_code != 200:
-        raise RuntimeError(f"Whisper API error {response.status_code}: {response.text[:800]}")
+    raise RuntimeError(f"Whisper API failed after {MAX_RETRIES} attempts: {last_error}")
 
-    result = response.json()
+
+async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
+    """Transcribe a single audio file via Whisper API."""
+    size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
+
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    result = await asyncio.to_thread(_call_whisper_sync, file_path, file_bytes)
 
     segments = []
     for seg in result.get("segments", []):
@@ -98,7 +103,6 @@ async def transcribe_audio(
         if i > 0 and all_segments:
             # Remove overlap: drop segments from this chunk that fall within
             # the overlap zone (before midpoint of overlap)
-            overlap_start = offset
             overlap_mid = offset + CHUNK_OVERLAP_SEC / 2
             chunk_segments = [s for s in chunk_segments if s.start >= overlap_mid]
 
