@@ -54,6 +54,9 @@ def _call_whisper_sync(file_path: str) -> str:
     """Synchronous Whisper API call using requests — runs in a thread."""
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
+    file_size = os.path.getsize(file_path)
+    logger.info(f"Whisper request: model={WHISPER_MODEL}, file={file_path}, size={file_size}")
+
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -61,13 +64,14 @@ def _call_whisper_sync(file_path: str) -> str:
                 resp = requests.post(
                     WHISPER_API_URL,
                     headers=headers,
-                    files={"file": (os.path.basename(file_path), f, "audio/mpeg")},
+                    files={"file": ("audio.mp3", f, "audio/mpeg")},
                     data={
-                        "model": WHISPER_MODEL,
+                        "model": "whisper-1",
                         "response_format": "json",
                     },
                     timeout=600,
                 )
+            logger.info(f"Whisper response: status={resp.status_code}, len={len(resp.text)}, headers={dict(resp.headers)}")
 
             if resp.status_code == 500:
                 logger.warning(f"Whisper attempt {attempt}/{MAX_RETRIES}: 500 — {resp.text[:200]}")
