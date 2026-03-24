@@ -1,7 +1,8 @@
+import json
 import logging
+import os
 
 import httpx
-from openai import AsyncOpenAI
 
 from config import OPENAI_API_KEY, WHISPER_MODEL, CHUNK_OVERLAP_SEC
 from models.transcript import Segment, TranscriptResult
@@ -9,44 +10,41 @@ from services.youtube import get_chunk_offset
 
 logger = logging.getLogger(__name__)
 
-_client: AsyncOpenAI | None = None
-
-
-def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(
-            api_key=OPENAI_API_KEY,
-            timeout=httpx.Timeout(300.0, connect=30.0),
-        )
-    return _client
+WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions"
 
 
 async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
-    """Transcribe a single audio file via Whisper API."""
-    import os
+    """Transcribe a single audio file via Whisper API using httpx directly."""
     size_mb = os.path.getsize(file_path) / (1024 * 1024)
     logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
 
-    try:
-        with open(file_path, "rb") as f:
-            response = await _get_client().audio.transcriptions.create(
-                model=WHISPER_MODEL,
-                file=f,
-                response_format="verbose_json",
-                timestamp_granularities=["segment"],
+    with open(file_path, "rb") as f:
+        files = {"file": (os.path.basename(file_path), f, "audio/mpeg")}
+        data = {
+            "model": WHISPER_MODEL,
+            "response_format": "verbose_json",
+            "timestamp_granularities[]": "segment",
+        }
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
+            response = await client.post(
+                WHISPER_API_URL,
+                headers=headers,
+                files=files,
+                data=data,
             )
-    except Exception as e:
-        cause = e.__cause__ or e.__context__
-        logger.error(f"Whisper API error: {type(e).__name__}: {e}")
-        logger.error(f"Underlying cause: {type(cause).__name__}: {cause}" if cause else "No underlying cause")
-        raise
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Whisper API error {response.status_code}: {response.text[:500]}")
+
+    result = response.json()
 
     segments = []
-    for seg in response.segments:
-        segments.append(Segment(start=seg.start, end=seg.end, text=seg.text.strip()))
+    for seg in result.get("segments", []):
+        segments.append(Segment(start=seg["start"], end=seg["end"], text=seg["text"].strip()))
 
-    return segments, response.language
+    return segments, result.get("language", "")
 
 
 async def transcribe_audio(
