@@ -120,7 +120,7 @@ async def cmd_transcribe(message: Message) -> None:
         await message.answer("Использование: /transcribe <youtube_url>")
         return
     url = parts[1].strip()
-    await _process_video(message, url)
+    await _process_youtube(message, url)
 
 
 @router.message(F.video | F.video_note | F.document)
@@ -192,9 +192,9 @@ async def _process_youtube(message: Message, url: str) -> None:
 
     except ValueError as e:
         await status_msg.edit_text(f"Ошибка: {e}")
-    except Exception:
+    except Exception as e:
         logger.exception("Error processing YouTube video")
-        await status_msg.edit_text("Произошла ошибка при обработке видео. Попробуйте позже.")
+        await status_msg.edit_text(f"Произошла ошибка при обработке видео:\n\n<code>{e}</code>", parse_mode="HTML")
     finally:
         _active_users.discard(user_id)
         cleanup_session(session_dir)
@@ -249,9 +249,9 @@ async def _process_telegram_video(message: Message) -> None:
             await status_msg.edit_text(f"Ошибка Telegram: {e}")
     except ValueError as e:
         await status_msg.edit_text(f"Ошибка: {e}")
-    except Exception:
+    except Exception as e:
         logger.exception("Error processing Telegram video")
-        await status_msg.edit_text("Произошла ошибка при обработке видео. Попробуйте позже.")
+        await status_msg.edit_text(f"Произошла ошибка при обработке видео:\n\n<code>{e}</code>", parse_mode="HTML")
     finally:
         _active_users.discard(user_id)
         cleanup_session(session_dir)
