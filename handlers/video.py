@@ -113,6 +113,50 @@ async def cmd_balance(message: Message) -> None:
     await message.answer("\n".join(lines))
 
 
+@router.message(Command("test_whisper"))
+async def cmd_test_whisper(message: Message) -> None:
+    """Send a tiny test file to Whisper API to diagnose connection issues."""
+    import httpx
+    import struct
+    import io
+    from config import OPENAI_API_KEY
+
+    await message.answer("🔧 Тестирую Whisper API...")
+
+    # Generate minimal valid WAV file (0.1s silence)
+    sample_rate = 16000
+    num_samples = 1600  # 0.1 seconds
+    audio_data = struct.pack(f"<{num_samples}h", *([0] * num_samples))
+    wav_buf = io.BytesIO()
+    # WAV header
+    data_size = len(audio_data)
+    wav_buf.write(b"RIFF")
+    wav_buf.write(struct.pack("<I", 36 + data_size))
+    wav_buf.write(b"WAVE")
+    wav_buf.write(b"fmt ")
+    wav_buf.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16))
+    wav_buf.write(b"data")
+    wav_buf.write(struct.pack("<I", data_size))
+    wav_buf.write(audio_data)
+    wav_buf.seek(0)
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                files={"file": ("test.wav", wav_buf, "audio/wav")},
+                data={"model": "whisper-1", "response_format": "json"},
+            )
+        await message.answer(f"✅ Whisper ответил: {resp.status_code}\n<code>{resp.text[:500]}</code>", parse_mode="HTML")
+    except Exception as e:
+        cause = e.__cause__ or e.__context__
+        err = f"❌ {type(e).__name__}: {e}"
+        if cause:
+            err += f"\nCaused by: {type(cause).__name__}: {cause}"
+        await message.answer(err)
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
     await message.answer(
