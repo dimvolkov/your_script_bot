@@ -30,18 +30,20 @@ def download_audio(url: str, session_dir: str) -> tuple[str, str]:
     output_path = os.path.join(session_dir, "audio.%(ext)s")
 
     ydl_opts = {
-        "format": "worstaudio/worst",
+        "format": "bestaudio/best",
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "32",
+                "preferredquality": "64",
             }
         ],
-        "postprocessor_args": ["-ac", "1", "-ar", "16000"],
+        "postprocessor_args": ["-ac", "1"],
         "outtmpl": output_path,
         "noplaylist": True,
         "quiet": True,
+        "socket_timeout": 60,
+        "retries": 3,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
