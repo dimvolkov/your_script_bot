@@ -8,7 +8,14 @@ from models.transcript import AnalysisResult, Segment, TopicSection, TranscriptR
 
 logger = logging.getLogger(__name__)
 
-client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+_client: anthropic.AsyncAnthropic | None = None
+
+
+def _get_client() -> anthropic.AsyncAnthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    return _client
 
 ANALYSIS_PROMPT = """\
 You are given a transcript of a YouTube video with timestamps.
@@ -70,7 +77,7 @@ async def analyze_transcript(transcript: TranscriptResult) -> AnalysisResult:
     if token_estimate > 120_000:
         return await _analyze_long_transcript(transcript)
 
-    response = await client.messages.create(
+    response = await _get_client().messages.create(
         model=CLAUDE_MODEL,
         max_tokens=16384,
         messages=[{"role": "user", "content": full_prompt}],
@@ -107,7 +114,7 @@ Transcript (first 30000 chars):
 Full timestamps range: {format_timestamp(transcript.segments[0].start)} - {format_timestamp(transcript.segments[-1].end)}
 """
 
-    response = await client.messages.create(
+    response = await _get_client().messages.create(
         model=CLAUDE_MODEL,
         max_tokens=4096,
         messages=[{"role": "user", "content": toc_prompt}],
@@ -205,7 +212,7 @@ def _parse_json(text: str) -> dict:
 
 async def _fix_json_with_claude(broken_json: str) -> dict:
     """Ask Claude to fix broken JSON."""
-    response = await client.messages.create(
+    response = await _get_client().messages.create(
         model=CLAUDE_MODEL,
         max_tokens=16384,
         messages=[{"role": "user", "content": (

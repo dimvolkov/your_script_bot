@@ -9,10 +9,17 @@ from services.youtube import get_chunk_offset
 
 logger = logging.getLogger(__name__)
 
-client = AsyncOpenAI(
-    api_key=OPENAI_API_KEY,
-    timeout=httpx.Timeout(300.0, connect=30.0),
-)
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(
+            api_key=OPENAI_API_KEY,
+            timeout=httpx.Timeout(300.0, connect=30.0),
+        )
+    return _client
 
 
 async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
@@ -22,7 +29,7 @@ async def transcribe_file(file_path: str) -> tuple[list[Segment], str]:
     logger.info(f"Transcribing {file_path} ({size_mb:.1f} MB)...")
 
     with open(file_path, "rb") as f:
-        response = await client.audio.transcriptions.create(
+        response = await _get_client().audio.transcriptions.create(
             model=WHISPER_MODEL,
             file=f,
             response_format="verbose_json",
