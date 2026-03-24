@@ -19,11 +19,11 @@ def _call_whisper_sync(file_path: str, file_bytes: bytes) -> dict:
     """Synchronous Whisper API call — runs in a thread."""
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
     files = {"file": (os.path.basename(file_path), file_bytes, "audio/mpeg")}
-    data = [
-        ("model", WHISPER_MODEL),
-        ("response_format", "verbose_json"),
-        ("timestamp_granularities[]", "segment"),
-    ]
+    data = {
+        "model": WHISPER_MODEL,
+        "response_format": "verbose_json",
+        "timestamp_granularities[]": "segment",
+    }
 
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
