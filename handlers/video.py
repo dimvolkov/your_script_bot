@@ -117,7 +117,7 @@ async def cmd_balance(message: Message) -> None:
 async def cmd_test_whisper(message: Message) -> None:
     """Download real YouTube audio and test Whisper API with it."""
     import requests as req
-    from config import OPENAI_API_KEY
+    from config import OPENAI_API_KEY, WHISPER_MODEL
     from services.youtube import download_audio, get_session_dir, cleanup_session
 
     url = "https://youtu.be/xBIVlM435Zg"
@@ -144,7 +144,7 @@ async def cmd_test_whisper(message: Message) -> None:
                     "https://api.openai.com/v1/audio/transcriptions",
                     headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
                     files={"file": ("audio.mp3", f, "audio/mpeg")},
-                    data={"model": "gpt-4o-mini-transcribe", "response_format": "json"},
+                    data={"model": WHISPER_MODEL, "response_format": "json"},
                     timeout=300,
                 )
 
