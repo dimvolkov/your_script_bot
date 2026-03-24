@@ -22,7 +22,6 @@ def _call_whisper_sync(file_path: str, file_bytes: bytes) -> dict:
     data = {
         "model": WHISPER_MODEL,
         "response_format": "verbose_json",
-        "timestamp_granularities[]": "segment",
     }
 
     last_error = None
