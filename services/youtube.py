@@ -30,15 +30,15 @@ def download_audio(url: str, session_dir: str) -> tuple[str, str]:
     output_path = os.path.join(session_dir, "audio.%(ext)s")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "worstaudio/worst",
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "64",
+                "preferredquality": "32",
             }
         ],
-        "postprocessor_args": ["-ac", "1"],
+        "postprocessor_args": ["-ac", "1", "-ar", "16000"],
         "outtmpl": output_path,
         "noplaylist": True,
         "quiet": True,
@@ -131,7 +131,7 @@ def extract_audio_from_file(video_path: str, session_dir: str) -> str:
     import subprocess
     audio_path = os.path.join(session_dir, "audio.mp3")
     subprocess.run(
-        ["ffmpeg", "-i", video_path, "-vn", "-ac", "1", "-ab", "64k", "-f", "mp3", audio_path, "-y"],
+        ["ffmpeg", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-ab", "32k", "-f", "mp3", audio_path, "-y"],
         check=True,
         capture_output=True,
     )

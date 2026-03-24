@@ -31,7 +31,7 @@ def _call_whisper_sync(file_path: str) -> dict:
                         "model": WHISPER_MODEL,
                         "response_format": "verbose_json",
                     },
-                    timeout=300,
+                    timeout=(30, 600),
                 )
 
             if resp.status_code == 500:
