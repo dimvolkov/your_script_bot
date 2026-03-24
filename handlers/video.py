@@ -116,7 +116,7 @@ async def cmd_balance(message: Message) -> None:
 @router.message(Command("test_whisper"))
 async def cmd_test_whisper(message: Message) -> None:
     """Download real YouTube audio and test Whisper API with it."""
-    import httpx
+    import requests as req
     from config import OPENAI_API_KEY
     from services.youtube import download_audio, get_session_dir, cleanup_session
 
@@ -130,23 +130,25 @@ async def cmd_test_whisper(message: Message) -> None:
         file_size = os.path.getsize(audio_path)
         with open(audio_path, "rb") as f:
             magic = f.read(16)
-            file_bytes = f.seek(0) or f.read()
 
         await message.answer(
             f"🔧 2. Файл: {audio_path}\n"
             f"Размер: {file_size / 1024 / 1024:.1f} MB\n"
             f"Magic bytes: {magic.hex()}\n"
-            f"Отправляю в Whisper..."
+            f"Отправляю в Whisper (requests)..."
         )
 
-        # Test 1: simple json format
-        with httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0)) as client:
-            resp = client.post(
-                "https://api.openai.com/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                files={"file": ("audio.mp3", file_bytes, "audio/mpeg")},
-                data={"model": "whisper-1", "response_format": "json"},
-            )
+        def _test_sync():
+            with open(audio_path, "rb") as f:
+                return req.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                    files={"file": ("audio.mp3", f, "audio/mpeg")},
+                    data={"model": "whisper-1", "response_format": "json"},
+                    timeout=300,
+                )
+
+        resp = await asyncio.to_thread(_test_sync)
 
         if resp.status_code == 200:
             text = resp.json().get("text", "")[:300]
@@ -154,8 +156,7 @@ async def cmd_test_whisper(message: Message) -> None:
         else:
             await message.answer(
                 f"❌ Статус: {resp.status_code}\n"
-                f"Headers: {dict(resp.headers)}\n"
-                f"Body: {resp.text[:300]}"
+                f"Body: {resp.text[:500]}"
             )
     except Exception as e:
         cause = e.__cause__ or e.__context__
@@ -163,6 +164,8 @@ async def cmd_test_whisper(message: Message) -> None:
         if cause:
             err += f"\nCaused by: {type(cause).__name__}: {cause}"
         await message.answer(err)
+    finally:
+        cleanup_session(session_dir)
     finally:
         cleanup_session(session_dir)
 
