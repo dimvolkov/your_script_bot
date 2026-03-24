@@ -194,7 +194,10 @@ async def _process_youtube(message: Message, url: str) -> None:
         await status_msg.edit_text(f"Ошибка: {e}")
     except Exception as e:
         logger.exception("Error processing YouTube video")
-        await status_msg.edit_text(f"Произошла ошибка при обработке видео:\n\n<code>{e}</code>", parse_mode="HTML")
+        import traceback
+        tb = traceback.format_exception(type(e), e, e.__traceback__)
+        short_tb = "".join(tb[-3:])[:800]
+        await status_msg.edit_text(f"Ошибка:\n\n<code>{short_tb}</code>", parse_mode="HTML")
     finally:
         _active_users.discard(user_id)
         cleanup_session(session_dir)
@@ -251,7 +254,10 @@ async def _process_telegram_video(message: Message) -> None:
         await status_msg.edit_text(f"Ошибка: {e}")
     except Exception as e:
         logger.exception("Error processing Telegram video")
-        await status_msg.edit_text(f"Произошла ошибка при обработке видео:\n\n<code>{e}</code>", parse_mode="HTML")
+        import traceback
+        tb = traceback.format_exception(type(e), e, e.__traceback__)
+        short_tb = "".join(tb[-3:])[:800]
+        await status_msg.edit_text(f"Ошибка:\n\n<code>{short_tb}</code>", parse_mode="HTML")
     finally:
         _active_users.discard(user_id)
         cleanup_session(session_dir)
