@@ -87,7 +87,7 @@ def download_audio(url: str, session_dir: str) -> tuple[str, str]:
     return audio_path, title
 
 
-MAX_CHUNK_DURATION_SEC = 1300  # Whisper API limit is 1400s, keep margin
+MAX_CHUNK_DURATION_SEC = 600  # Keep chunks short for Whisper API stability
 
 
 def split_audio_if_needed(audio_path: str, session_dir: str) -> list[str]:
@@ -124,7 +124,7 @@ def split_audio_if_needed(audio_path: str, session_dir: str) -> list[str]:
         chunk = audio[start:end]
 
         chunk_path = os.path.join(session_dir, f"chunk_{chunk_index:03d}.mp3")
-        chunk.export(chunk_path, format="mp3", parameters=["-ac", "1", "-ab", "64k"])
+        chunk.export(chunk_path, format="mp3", parameters=["-ac", "1", "-ar", "16000", "-ab", "24k"])
         chunks.append(chunk_path)
 
         logger.info(
