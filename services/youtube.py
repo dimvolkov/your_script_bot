@@ -87,19 +87,32 @@ def download_audio(url: str, session_dir: str) -> tuple[str, str]:
     return audio_path, title
 
 
-def split_audio_if_needed(audio_path: str, session_dir: str) -> list[str]:
-    """Split audio into chunks if it exceeds the size limit. Returns list of chunk paths."""
-    file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+MAX_CHUNK_DURATION_SEC = 1300  # Whisper API limit is 1400s, keep margin
 
-    if file_size_mb <= CHUNK_SIZE_MB:
+
+def split_audio_if_needed(audio_path: str, session_dir: str) -> list[str]:
+    """Split audio into chunks if it exceeds the size or duration limit. Returns list of chunk paths."""
+    file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+    audio = AudioSegment.from_file(audio_path)
+    total_duration_ms = len(audio)
+    total_duration_sec = total_duration_ms / 1000.0
+
+    needs_split_size = file_size_mb > CHUNK_SIZE_MB
+    needs_split_duration = total_duration_sec > MAX_CHUNK_DURATION_SEC
+
+    if not needs_split_size and not needs_split_duration:
         return [audio_path]
 
-    logger.info(f"Audio is {file_size_mb:.1f}MB, splitting into chunks...")
-    audio = AudioSegment.from_file(audio_path)
+    logger.info(f"Audio is {file_size_mb:.1f}MB, {total_duration_sec:.0f}s, splitting into chunks...")
 
-    total_duration_ms = len(audio)
-    # Estimate chunk duration based on file size ratio
-    chunk_duration_ms = int(total_duration_ms * (CHUNK_SIZE_MB / file_size_mb))
+    # Determine chunk duration: respect both size and duration limits
+    if needs_split_size:
+        chunk_duration_by_size_ms = int(total_duration_ms * (CHUNK_SIZE_MB / file_size_mb))
+    else:
+        chunk_duration_by_size_ms = total_duration_ms
+
+    chunk_duration_by_time_ms = MAX_CHUNK_DURATION_SEC * 1000
+    chunk_duration_ms = min(chunk_duration_by_size_ms, chunk_duration_by_time_ms)
     overlap_ms = CHUNK_OVERLAP_SEC * 1000
 
     chunks = []
@@ -135,7 +148,14 @@ def get_chunk_offset(chunk_index: int, chunks: list[str], audio_path: str) -> fl
     audio = AudioSegment.from_file(audio_path)
     total_duration_ms = len(audio)
     file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-    chunk_duration_ms = int(total_duration_ms * (CHUNK_SIZE_MB / file_size_mb))
+
+    if file_size_mb > CHUNK_SIZE_MB:
+        chunk_duration_by_size_ms = int(total_duration_ms * (CHUNK_SIZE_MB / file_size_mb))
+    else:
+        chunk_duration_by_size_ms = total_duration_ms
+
+    chunk_duration_by_time_ms = MAX_CHUNK_DURATION_SEC * 1000
+    chunk_duration_ms = min(chunk_duration_by_size_ms, chunk_duration_by_time_ms)
     overlap_ms = CHUNK_OVERLAP_SEC * 1000
 
     offset_ms = chunk_index * (chunk_duration_ms - overlap_ms)
