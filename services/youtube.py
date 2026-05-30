@@ -14,9 +14,22 @@ YOUTUBE_URL_PATTERN = re.compile(
     r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+"
 )
 
+TWITTER_URL_PATTERN = re.compile(
+    r"(https?://)?(www\.|mobile\.)?(twitter\.com|x\.com)/[\w]+/status/\d+"
+)
+
 
 def is_valid_youtube_url(url: str) -> bool:
     return bool(YOUTUBE_URL_PATTERN.match(url.strip()))
+
+
+def is_valid_twitter_url(url: str) -> bool:
+    return bool(TWITTER_URL_PATTERN.match(url.strip()))
+
+
+def is_supported_url(url: str) -> bool:
+    """True for any video URL we can download (YouTube or Twitter/X)."""
+    return is_valid_youtube_url(url) or is_valid_twitter_url(url)
 
 
 def extract_video_id(url: str) -> str:
@@ -182,6 +195,12 @@ def extract_audio_from_file(video_path: str, session_dir: str) -> str:
 
 def download_thumbnail(url: str, session_dir: str) -> str | None:
     """Download video thumbnail. Returns path or None on failure."""
+    if is_valid_youtube_url(url):
+        return _download_youtube_thumbnail(url, session_dir)
+    return _download_thumbnail_via_ytdlp(url, session_dir)
+
+
+def _download_youtube_thumbnail(url: str, session_dir: str) -> str | None:
     video_id = extract_video_id(url)
     if not video_id:
         return None
@@ -196,6 +215,30 @@ def download_thumbnail(url: str, session_dir: str) -> str | None:
                 return thumb_path
         except Exception:
             continue
+    return None
+
+
+def _download_thumbnail_via_ytdlp(url: str, session_dir: str) -> str | None:
+    """Get a thumbnail URL from yt-dlp metadata (works for Twitter/X and others)."""
+    import urllib.request
+    try:
+        with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True, "skip_download": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        thumb_url = info.get("thumbnail")
+        if not thumb_url:
+            thumbnails = info.get("thumbnails") or []
+            if thumbnails:
+                thumb_url = thumbnails[-1].get("url")
+        if not thumb_url:
+            return None
+
+        thumb_path = os.path.join(session_dir, "thumbnail.jpg")
+        urllib.request.urlretrieve(thumb_url, thumb_path)
+        if os.path.getsize(thumb_path) > 1000:
+            return thumb_path
+    except Exception:
+        return None
     return None
 
 

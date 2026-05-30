@@ -66,9 +66,13 @@ def generate_docx(
     title: str, analysis: AnalysisResult, output_dir: str,
     video_url: str = "", thumbnail_path: str | None = None,
     segments: list[Segment] | None = None,
+    timestamp_links: bool = True,
 ) -> str:
     """Generate a .docx document with the analysis results."""
     doc = Document()
+
+    # Timestamp deep-links only work on platforms that support ?t= (e.g. YouTube).
+    ts_url = video_url if timestamp_links else ""
 
     style = doc.styles["Normal"]
     style.font.size = Pt(11)
@@ -95,8 +99,8 @@ def generate_docx(
     for section in analysis.sections:
         time_range = f"[{section.start_time} - {section.end_time}]"
         para = doc.add_paragraph(f"{section.title} ", style="List Number")
-        if video_url:
-            _add_hyperlink(para, _make_timestamp_url(video_url, section.start_time), time_range)
+        if ts_url:
+            _add_hyperlink(para, _make_timestamp_url(ts_url, section.start_time), time_range)
         else:
             para.add_run(time_range)
 
@@ -112,7 +116,7 @@ def generate_docx(
     doc.add_heading("Транскрипт", level=2)
     for section in analysis.sections:
         time_range = f"[{section.start_time} - {section.end_time}]"
-        _add_heading_with_timestamp_link(doc, section.title, time_range, video_url, section.start_time)
+        _add_heading_with_timestamp_link(doc, section.title, time_range, ts_url, section.start_time)
         doc.add_paragraph(section.content)
 
     # Save

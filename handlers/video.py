@@ -9,6 +9,8 @@ from aiogram.types import Message, FSInputFile
 
 from services.youtube import (
     is_valid_youtube_url,
+    is_valid_twitter_url,
+    is_supported_url,
     download_audio,
     download_thumbnail,
     extract_audio_from_file,
@@ -30,6 +32,7 @@ HELP_TEXT = (
     "Я транскрибирую видео и создаю структурированный документ на русском языке.\n\n"
     "Отправьте мне:\n"
     "• Ссылку на YouTube видео\n"
+    "• Ссылку на видео в Twitter / X\n"
     "• Видеофайл из Телеграм\n"
     "• Видеокружок\n\n"
     "Я:\n"
@@ -41,7 +44,7 @@ HELP_TEXT = (
     "Команды:\n"
     "/start — приветствие\n"
     "/help — эта справка\n"
-    "/transcribe <url> — транскрибировать видео\n"
+    "/transcribe <url> — транскрибировать видео (YouTube или Twitter/X)\n"
     "/balance — проверить статус API ключей"
 )
 
@@ -185,10 +188,10 @@ async def cmd_help(message: Message) -> None:
 async def cmd_transcribe(message: Message) -> None:
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("Использование: /transcribe <youtube_url>")
+        await message.answer("Использование: /transcribe <url> (YouTube или Twitter/X)")
         return
     url = parts[1].strip()
-    await _process_youtube(message, url)
+    await _process_video_url(message, url)
 
 
 @router.message(F.video | F.video_note | F.document)
@@ -207,8 +210,8 @@ async def handle_telegram_video(message: Message) -> None:
 @router.message(F.text)
 async def handle_url(message: Message) -> None:
     url = message.text.strip()
-    if is_valid_youtube_url(url):
-        await _process_youtube(message, url)
+    if is_supported_url(url):
+        await _process_video_url(message, url)
     elif "t.me/" in url or "telegram." in url:
         await message.answer(
             "Ссылки на Telegram видео не поддерживаются.\n"
@@ -216,7 +219,8 @@ async def handle_url(message: Message) -> None:
         )
     else:
         await message.answer(
-            "Отправьте ссылку на YouTube видео или перешлите видеофайл/видеокружок в этот чат."
+            "Отправьте ссылку на YouTube или Twitter/X видео "
+            "или перешлите видеофайл/видеокружок в этот чат."
         )
 
 
@@ -230,9 +234,9 @@ async def _check_active(message: Message) -> tuple[int, str] | None:
     return user_id, get_session_dir(user_id)
 
 
-async def _process_youtube(message: Message, url: str) -> None:
-    if not is_valid_youtube_url(url):
-        await message.answer("Некорректная ссылка на YouTube видео.")
+async def _process_video_url(message: Message, url: str) -> None:
+    if not is_supported_url(url):
+        await message.answer("Некорректная ссылка. Поддерживаются YouTube и Twitter/X.")
         return
 
     result = await _check_active(message)
@@ -252,6 +256,7 @@ async def _process_youtube(message: Message, url: str) -> None:
         docx_path = await asyncio.to_thread(
             generate_docx, title, analysis, session_dir,
             video_url=url, thumbnail_path=thumbnail_path,
+            timestamp_links=is_valid_youtube_url(url),
         )
 
         doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
@@ -261,7 +266,7 @@ async def _process_youtube(message: Message, url: str) -> None:
     except ValueError as e:
         await status_msg.edit_text(f"Ошибка: {e}")
     except Exception as e:
-        logger.exception("Error processing YouTube video")
+        logger.exception("Error processing video URL")
         cause = e.__cause__ or e.__context__
         err_info = f"{type(e).__name__}: {e}"
         if cause:
