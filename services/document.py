@@ -62,11 +62,20 @@ def _add_heading_with_timestamp_link(doc, title: str, time_range: str, video_url
         heading.add_run(time_range)
 
 
+def _add_long_text(doc, text: str) -> None:
+    """Add a long blob of text as readable paragraphs."""
+    blocks = [b.strip() for b in text.split("\n\n")] if "\n\n" in text else [text.strip()]
+    for block in blocks:
+        if block:
+            doc.add_paragraph(block)
+
+
 def generate_docx(
     title: str, analysis: AnalysisResult, output_dir: str,
     video_url: str = "", thumbnail_path: str | None = None,
     segments: list[Segment] | None = None,
     timestamp_links: bool = True,
+    transcript_text: str = "", translation_text: str = "",
 ) -> str:
     """Generate a .docx document with the analysis results."""
     doc = Document()
@@ -118,6 +127,16 @@ def generate_docx(
         time_range = f"[{section.start_time} - {section.end_time}]"
         _add_heading_with_timestamp_link(doc, section.title, time_range, ts_url, section.start_time)
         doc.add_paragraph(section.content)
+
+    # Full verbatim transcript — Russian translation (complete, not abridged)
+    if translation_text.strip():
+        doc.add_heading("Полная расшифровка (перевод)", level=2)
+        _add_long_text(doc, translation_text)
+
+    # Full verbatim transcript — original language, as recognized by Whisper
+    if transcript_text.strip():
+        doc.add_heading("Полная расшифровка (оригинал)", level=2)
+        _add_long_text(doc, transcript_text)
 
     # Save
     safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in title)[:50]

@@ -26,7 +26,7 @@ from services.youtube import (
     cleanup_session,
 )
 from services.transcriber import transcribe_audio
-from services.analyzer import analyze_transcript
+from services.analyzer import analyze_transcript, translate_full_text
 from services.document import generate_docx
 
 logger = logging.getLogger(__name__)
@@ -313,7 +313,9 @@ async def _run_pipeline(
         )
         chunks = await asyncio.to_thread(split_audio_if_needed, audio_path, session_dir)
 
-        transcript, analysis = await _transcribe_and_analyze(status_msg, chunks, audio_path)
+        transcript, analysis, translation = await _transcribe_and_analyze(
+            status_msg, chunks, audio_path
+        )
 
         await status_msg.edit_text("📄 [4/4] Создаю документ...")
         thumbnail_path = await asyncio.to_thread(download_thumbnail, url, session_dir)
@@ -321,6 +323,7 @@ async def _run_pipeline(
             generate_docx, title, analysis, session_dir,
             video_url=url, thumbnail_path=thumbnail_path,
             timestamp_links=is_valid_youtube_url(url),
+            transcript_text=transcript.full_text, translation_text=translation,
         )
 
         doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
@@ -369,11 +372,14 @@ async def _process_telegram_video(message: Message) -> None:
         audio_path = await asyncio.to_thread(extract_audio_from_file, video_path, session_dir)
         chunks = await asyncio.to_thread(split_audio_if_needed, audio_path, session_dir)
 
-        transcript, analysis = await _transcribe_and_analyze(status_msg, chunks, audio_path)
+        transcript, analysis, translation = await _transcribe_and_analyze(
+            status_msg, chunks, audio_path
+        )
 
         await status_msg.edit_text("📄 [4/4] Создаю документ...")
         docx_path = await asyncio.to_thread(
             generate_docx, title, analysis, session_dir,
+            transcript_text=transcript.full_text, translation_text=translation,
         )
 
         doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
@@ -402,11 +408,14 @@ async def _process_telegram_video(message: Message) -> None:
 
 
 async def _transcribe_and_analyze(status_msg, chunks, audio_path):
-    """Shared steps 2-3: transcribe and analyze."""
+    """Shared steps 2-3: transcribe, structure, and translate the full text."""
     await status_msg.edit_text("🎙 [2/4] Транскрибирую аудио...")
     transcript = await transcribe_audio(chunks, audio_path)
 
-    await status_msg.edit_text("🧠 [3/4] Анализирую и перевожу...")
+    await status_msg.edit_text("🧠 [3/4] Анализирую и структурирую...")
     analysis = await analyze_transcript(transcript)
 
-    return transcript, analysis
+    await status_msg.edit_text("🌐 [3/4] Перевожу полную расшифровку...")
+    translation = await translate_full_text(transcript.full_text)
+
+    return transcript, analysis, translation

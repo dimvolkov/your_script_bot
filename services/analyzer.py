@@ -153,7 +153,7 @@ Return ONLY the translated text, no JSON, no extra formatting.
 Text:
 {section_text[:15000]}
 """
-        content_response = await client.messages.create(
+        content_response = await _get_client().messages.create(
             model=CLAUDE_MODEL,
             max_tokens=4096,
             messages=[{"role": "user", "content": content_prompt}],
@@ -169,6 +169,54 @@ Text:
         )
 
     return AnalysisResult(summary=summary, sections=sections)
+
+
+# Translate the full transcript in pieces so nothing is truncated by the
+# model's output token limit (the structured analysis above is capped and
+# tends to abridge; this gives a complete verbatim translation).
+TRANSLATE_CHUNK_CHARS = 8000
+
+
+def _split_text(text: str, max_chars: int) -> list[str]:
+    """Split text into chunks of <= max_chars, breaking on word boundaries."""
+    words = text.split()
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        if current and len(current) + 1 + len(word) > max_chars:
+            chunks.append(current)
+            current = word
+        else:
+            current = f"{current} {word}" if current else word
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+async def translate_full_text(text: str) -> str:
+    """Translate the entire transcript to Russian in chunks (no truncation)."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+
+    parts: list[str] = []
+    for chunk in _split_text(text, TRANSLATE_CHUNK_CHARS):
+        prompt = (
+            "Translate the following transcript excerpt to Russian. "
+            "Keep it natural and readable and preserve the full meaning — "
+            "do NOT summarize, shorten or omit anything. "
+            "If it is already in Russian, just clean it up for readability. "
+            "Return ONLY the translated text: no preamble, no JSON, no formatting.\n\n"
+            + chunk
+        )
+        response = await _get_client().messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=8192,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        parts.append(response.content[0].text.strip())
+
+    return "\n\n".join(p for p in parts if p)
 
 
 def _parse_time(time_str: str) -> float:
