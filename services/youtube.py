@@ -37,8 +37,26 @@ def extract_video_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
-def download_audio(url: str, session_dir: str) -> tuple[str, str]:
-    """Download audio from YouTube video. Returns (audio_path, video_title)."""
+def get_video_entries(url: str) -> list[dict]:
+    """Return the list of video entries behind a URL.
+
+    A single video yields one entry; a Twitter/X tweet with several videos
+    yields one entry per video (yt-dlp exposes it as a playlist).
+    """
+    with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True, "skip_download": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if info.get("entries") is not None:
+        return [e for e in info["entries"] if e]
+    return [info]
+
+
+def download_audio(
+    url: str, session_dir: str, playlist_index: int | None = None
+) -> tuple[str, str]:
+    """Download audio from a video. Returns (audio_path, video_title).
+
+    For a multi-video tweet, ``playlist_index`` (1-based) selects which video.
+    """
     os.makedirs(session_dir, exist_ok=True)
     output_path = os.path.join(session_dir, "audio.%(ext)s")
 
@@ -58,15 +76,28 @@ def download_audio(url: str, session_dir: str) -> tuple[str, str]:
         "socket_timeout": 60,
         "retries": 3,
     }
+    if playlist_index is not None:
+        # Pin to a single entry so multiple videos can't overwrite the same file.
+        ydl_opts["playlist_items"] = str(playlist_index)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        duration = info.get("duration", 0)
+        # A tweet with several videos comes back as a playlist with no
+        # top-level duration/title — read those from the selected entry.
+        if info.get("entries") is not None:
+            entries = [e for e in info["entries"] if e]
+            if not entries:
+                raise ValueError("No downloadable video found at this URL.")
+            meta = entries[0]
+        else:
+            meta = info
+
+        duration = meta.get("duration") or 0
         if duration > MAX_VIDEO_DURATION_HOURS * 3600:
             raise ValueError(
                 f"Video is too long ({duration // 3600}h). Max is {MAX_VIDEO_DURATION_HOURS}h."
             )
-        title = info.get("title", "Untitled")
+        title = meta.get("title") or "Untitled"
         ydl.download([url])
 
     # Find the downloaded file

@@ -5,7 +5,13 @@ import os
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import (
+    Message,
+    FSInputFile,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 
 from services.youtube import (
     is_valid_youtube_url,
@@ -15,6 +21,7 @@ from services.youtube import (
     download_thumbnail,
     extract_audio_from_file,
     split_audio_if_needed,
+    get_video_entries,
     get_session_dir,
     cleanup_session,
 )
@@ -27,6 +34,9 @@ router = Router()
 
 # Track active users to allow only one request at a time
 _active_users: set[int] = set()
+
+# Pending multi-video tweet choices: prompt message_id -> source URL
+_pending_choices: dict[int, str] = {}
 
 HELP_TEXT = (
     "Я транскрибирую видео и создаю структурированный документ на русском языке.\n\n"
@@ -224,9 +234,8 @@ async def handle_url(message: Message) -> None:
         )
 
 
-async def _check_active(message: Message) -> tuple[int, str] | None:
+async def _check_active(message: Message, user_id: int) -> tuple[int, str] | None:
     """Check if user already has an active request. Returns (user_id, session_dir) or None."""
-    user_id = message.from_user.id
     if user_id in _active_users:
         await message.answer("Подождите завершения предыдущего запроса.")
         return None
@@ -234,19 +243,74 @@ async def _check_active(message: Message) -> tuple[int, str] | None:
     return user_id, get_session_dir(user_id)
 
 
+def _format_duration(seconds: float) -> str:
+    total = int(seconds or 0)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
 async def _process_video_url(message: Message, url: str) -> None:
     if not is_supported_url(url):
         await message.answer("Некорректная ссылка. Поддерживаются YouTube и Twitter/X.")
         return
 
-    result = await _check_active(message)
+    # A single tweet can hold several videos. Probe first and, if so, let the
+    # user pick which one to transcribe instead of silently grabbing one.
+    if is_valid_twitter_url(url):
+        try:
+            entries = await asyncio.to_thread(get_video_entries, url)
+        except Exception:
+            entries = None
+        if entries and len(entries) > 1:
+            await _offer_video_choice(message, url, entries)
+            return
+
+    await _run_pipeline(message, url, message.from_user.id)
+
+
+async def _offer_video_choice(message: Message, url: str, entries: list[dict]) -> None:
+    """Show a button per video in a multi-video tweet."""
+    buttons = []
+    for i, entry in enumerate(entries, 1):
+        label = f"Видео {i} · {_format_duration(entry.get('duration'))}"
+        buttons.append([InlineKeyboardButton(text=label, callback_data=f"twpick:{i}")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    prompt = await message.answer(
+        f"В этом твите {len(entries)} видео. Какое транскрибировать?",
+        reply_markup=keyboard,
+    )
+    _pending_choices[prompt.message_id] = url
+
+
+@router.callback_query(F.data.startswith("twpick:"))
+async def on_video_pick(callback: CallbackQuery) -> None:
+    await callback.answer()
+    index = int(callback.data.split(":")[1])
+    url = _pending_choices.pop(callback.message.message_id, None)
+    if not url:
+        await callback.message.edit_text(
+            "Этот выбор устарел — отправьте ссылку ещё раз."
+        )
+        return
+    await callback.message.edit_text(f"Выбрано видео {index}. Начинаю обработку...")
+    await _run_pipeline(
+        callback.message, url, callback.from_user.id, playlist_index=index
+    )
+
+
+async def _run_pipeline(
+    trigger: Message, url: str, user_id: int, playlist_index: int | None = None
+) -> None:
+    """Download, transcribe, analyze and send the .docx for one video URL."""
+    result = await _check_active(trigger, user_id)
     if not result:
         return
     user_id, session_dir = result
-    status_msg = await message.answer("⏳ [1/4] Скачиваю аудио...")
+    status_msg = await trigger.answer("⏳ [1/4] Скачиваю аудио...")
 
     try:
-        audio_path, title = await asyncio.to_thread(download_audio, url, session_dir)
+        audio_path, title = await asyncio.to_thread(
+            download_audio, url, session_dir, playlist_index
+        )
         chunks = await asyncio.to_thread(split_audio_if_needed, audio_path, session_dir)
 
         transcript, analysis = await _transcribe_and_analyze(status_msg, chunks, audio_path)
@@ -260,7 +324,7 @@ async def _process_video_url(message: Message, url: str) -> None:
         )
 
         doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
-        await message.answer_document(doc_file, caption=f"Транскрипт: {title}")
+        await trigger.answer_document(doc_file, caption=f"Транскрипт: {title}")
         await status_msg.delete()
 
     except ValueError as e:
@@ -278,7 +342,7 @@ async def _process_video_url(message: Message, url: str) -> None:
 
 
 async def _process_telegram_video(message: Message) -> None:
-    result = await _check_active(message)
+    result = await _check_active(message, message.from_user.id)
     if not result:
         return
     user_id, session_dir = result
